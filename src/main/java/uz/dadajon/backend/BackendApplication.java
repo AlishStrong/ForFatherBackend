@@ -46,40 +46,24 @@ public class BackendApplication {
 		return "Roger Roger!";
 	}
 
-	// http://host:2239/command10?msisdn=998903271675
+
+	// There can be several servers and in each server Ctail-Launcher needs to be executed
 	@GetMapping("/command10")
 	public Mono<String> getMethodName(@RequestParam long msisdn) {
 		System.out.println("ALL STARTED AT - " + LocalDateTime.now());
-		// Mono<String> ctailMono = Mono.fromCallable(() -> {
-		// 		try {
-		// 			return ctailTest();
-		// 		} catch (InterruptedException e) {
-		// 			Thread.currentThread().interrupt();
-		// 			return "Calling CTAIL exception at " + LocalDateTime.now();
-		// 		}
-		// 	}).subscribeOn(Schedulers.boundedElastic());
-
-		// Mono<Void> launcherMono = Mono.delay(Duration.ofMillis(1000))
-		// 	.doOnNext(tick -> {
-		// 		System.out.println("= Calling LAUNCHER at - " + LocalDateTime.now());
-		// 		launcherTest();
-		// 	}).then();
-
-		// launcherMono.subscribe();
-		
-		// return ctailMono;
 
 		Mono<String> ctailMono = Mono.fromCallable(() -> {
 			System.out.println("=== Calling CTAIL at - " + LocalDateTime.now());
 			return sshService.executeCtail(msisdn);
 		}).subscribeOn(Schedulers.boundedElastic());
 
-		Mono<Void> launcherMono = Mono.delay(Duration.ofMillis(1000)).doOnNext(tick -> {
+		Mono<String> launcherMono = Mono.delay(Duration.ofMillis(1000)).map(tick -> {
 			System.out.println("--- Calling LAUNCHER at - " + LocalDateTime.now());
-			sshService.executeLauncher(msisdn);
-		}).then();
+			return sshService.executeLauncher(msisdn);
+		});
 
-		launcherMono.subscribe();
-		return ctailMono;
+		return Mono.zip(ctailMono, launcherMono).map(tuple -> {
+			return tuple.getT1();
+		});
 	}
 }
