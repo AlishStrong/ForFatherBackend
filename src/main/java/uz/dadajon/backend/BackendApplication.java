@@ -1,21 +1,12 @@
 package uz.dadajon.backend;
 
-import java.time.Duration;
-import java.time.LocalDateTime;
-import java.util.Arrays;
-import java.util.List;
-import java.util.stream.Collector;
-import java.util.stream.Collectors;
-
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
 
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Schedulers;
-import reactor.util.function.Tuple2;
-import reactor.util.function.Tuples;
 
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -52,37 +43,18 @@ public class BackendApplication {
 		return "Roger Roger!";
 	}
 
+	// attach IP of the requester
+	// log all request and responses to a file
+    // create a separate log file for each day
+    // log file name: [date].log
+    // log format: time requester-IP requested-MSISDN unique-ID-of-each-request/response status: requested, responded, error
 
-	// There can be several servers and in each server Ctail-Launcher needs to be executed
-	// {"currentTime":"22:31:42.063","switchNumber":"900","msisdn":"998903271675","imsi":"434041105830345","imei":"3547041718492401","mnc":"03","lac":"5E97","cellId":"9EC"}
+	// if exception, return "no data"
+	// call several servers, respond with CtailResponse only from the first answer
 	@GetMapping("/command10")
-	public Mono<String> getMethodName(@RequestParam long msisdn) {
-		List<Long> phonenumbers = Arrays.asList(998909997433L, 998937904486L, msisdn);
-		System.out.println("ALL STARTED AT - " + LocalDateTime.now());
-
-		return phonenumbers.stream().map(pn -> {
-			Mono<String> ctailMono = Mono.fromCallable(() -> {
-				System.out.println("=== Calling CTAIL for " + pn + " at - " + LocalDateTime.now());
-				return sshService.executeCtail(msisdn);
-			}).subscribeOn(Schedulers.boundedElastic());
-	
-			Mono<String> launcherMono = Mono.delay(Duration.ofMillis(1000)).map(tick -> {
-				System.out.println("--- Calling LAUNCHER for " + pn + " at - " + LocalDateTime.now());
-				return sshService.executeLauncher(msisdn);
-			});
-
-			return Mono.zip(ctailMono, launcherMono).map(tuple -> {
-				return "Result for number " + pn + " -- " + tuple.getT1();
-			});
-			
-		}).collect(Collectors.collectingAndThen(Collectors.toList(), monosList -> Mono.zip(monosList, Tuples.fnAny()))).map(tuple -> {
-			System.out.println("++++++++++++++++++++++++++++++");
-			System.out.println(tuple);
-			return "check logs";
-		});
-
-
-
-
+	public Mono<ResponseEntity<Object>> getMethodName(@RequestParam long msisdn) {
+		return Mono.fromCallable(() -> {
+			return ResponseEntity.ok().body((Object) sshService.executeLauncher(msisdn));
+		}).onErrorReturn(ResponseEntity.badRequest().body((Object) "no data"));
 	}
 }
