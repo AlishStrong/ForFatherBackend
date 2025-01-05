@@ -2,8 +2,10 @@ package uz.dadajon.backend;
 
 import java.io.ByteArrayOutputStream;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 import org.apache.sshd.client.SshClient;
 import org.apache.sshd.client.channel.ChannelExec;
@@ -15,6 +17,9 @@ import org.springframework.stereotype.Service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
+
 @Service
 public class SshService {
 
@@ -24,8 +29,8 @@ public class SshService {
     @Value("${ssh.password}")
     private String password;
 
-    @Value("${ssh.host}")
-    private String host;
+    @Value("#{'${ssh.hosts}'.split(';')}") 
+    private List<String> hosts;
 
     @Value("${ssh.port}")
     private Integer port;
@@ -36,11 +41,28 @@ public class SshService {
     @Value("${python.executable}")
     private String pythonExe;
 
+    public Mono<CtailResponse> executeLaunchers(long phoneNumber) {
+        return hosts.stream()
+            .map((host) -> {
+                return Mono.fromCallable(() -> executeLauncher(phoneNumber, host))
+                            .subscribeOn(Schedulers.boundedElastic());
+            })
+            .collect(Collectors.collectingAndThen(Collectors.toList(), monosList -> Mono.firstWithValue(monosList)))
+            .map(firstValue -> {
+                ObjectMapper mapper = new ObjectMapper();
+                try {
+                    return mapper.readValue(firstValue, CtailResponse.class);
+                } catch (Exception e) {
+                    return null;
+                }
+            });
+    }
+
     // log all request and responses to a file
     // create a separate log file for each day
     // log file name: [date].log
     // log format: time requester-IP requested-MSISDN unique-ID-of-each-request/response status: requested, responded, error
-    public CtailResponse executeLauncher(long phoneNumber) throws Exception {
+    public String executeLauncher(long phoneNumber, String host) throws Exception {
         SshClient sshClient = SshClient.setUpDefaultClient();
         sshClient.start();
         String output = null;
@@ -63,20 +85,22 @@ public class SshService {
 
         // Check if timed out
         if (events.contains(ClientChannelEvent.TIMEOUT)) {
-            System.err.println("Execution timed out.");
+            throw new Exception("SSH execution timed out for server - " + host);
         }
 
-        output = out.toString();
-        String error = err.toString();
+        output = out.toString().trim();
         Integer statusCode = channelExec.getExitStatus();
 
-        System.out.println("Command Output: " + output);
-        System.out.println("Command Error: " + error);
-        System.out.println("Command Status Code: " + statusCode);
+        if (statusCode > 0) {
+            throw new Exception("SSH execution for server - " + host + " return non-zero status");
+        }
 
         sshClient.stop(); // Ensure the SSH client is stopped
 
-        ObjectMapper mapper = new ObjectMapper();
-        return mapper.readValue(output, CtailResponse.class);
+        if(output != null && !output.isEmpty()) {
+            return output;
+        } else {
+            throw new Exception("No data for server - " + host);
+        }
     }
 }

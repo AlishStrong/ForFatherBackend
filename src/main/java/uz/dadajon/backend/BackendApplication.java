@@ -48,13 +48,10 @@ public class BackendApplication {
     // create a separate log file for each day
     // log file name: [date].log
     // log format: time requester-IP requested-MSISDN unique-ID-of-each-request/response status: requested, responded, error
-
-	// if exception, return "no data"
-	// call several servers, respond with CtailResponse only from the first answer
 	@GetMapping("/command10")
 	public Mono<ResponseEntity<Object>> getMethodName(@RequestParam long msisdn) {
-		return Mono.fromCallable(() -> {
-			return ResponseEntity.ok().body((Object) sshService.executeLauncher(msisdn));
-		}).onErrorReturn(ResponseEntity.badRequest().body((Object) "no data"));
+		return sshService.executeLaunchers(msisdn)
+			.map(ctailResponse -> ResponseEntity.ok().body((Object) ctailResponse))
+			.onErrorReturn(ResponseEntity.badRequest().body((Object) "no data"));
 	}
 }
